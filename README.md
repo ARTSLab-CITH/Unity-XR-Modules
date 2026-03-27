@@ -5,5 +5,5 @@ In each module, a `README.md` is available to read up on the context of that mod
 
 ## Module List
 - [EyeTracker](EyeTracker/README.md)
-- [WebServer](EyeTracker/README.md)
-- [EmotiBit](EyeTracker/README.md)
+- [WebServer](WebServer/README.md)
+- [EmotiBit](EmotiBit/README.md)
