@@ -25,6 +25,9 @@ public class EyeTracker : MonoBehaviour
         public Vector3 localDir;       // localRot * Vector3.forward  (HMD-local)
         public Vector3 worldDir;       // HMD world rotation * localDir
 
+        // 2D projection on the camera screen
+        public Vector2 screenPos;
+
         public bool isValid;
         public float openness;
         public float pupilDiameter;
@@ -57,6 +60,9 @@ public class EyeTracker : MonoBehaviour
     public bool IsRecording { get; private set; } = false;
 
     ViveEyeTracker eyeTrackerFeature;
+
+    public Transform leftGazeTransform = null;
+    public Transform rightGazeTransform = null;
 
 
     void Awake()
@@ -141,12 +147,14 @@ public class EyeTracker : MonoBehaviour
             "L_LocalRotX,L_LocalRotY,L_LocalRotZ,L_LocalRotW," +
             "L_LocalDirX,L_LocalDirY,L_LocalDirZ," +
             "L_WorldDirX,L_WorldDirY,L_WorldDirZ," +
+            "L_ScreenPosX,L_ScreenPosY," +
             "L_IsValid,L_Openness,L_PupilDiameter," +
             "R_LocalPosX,R_LocalPosY,R_LocalPosZ," +
             "R_WorldPosX,R_WorldPosY,R_WorldPosZ," +
             "R_LocalRotX,R_LocalRotY,R_LocalRotZ,R_LocalRotW," +
             "R_LocalDirX,R_LocalDirY,R_LocalDirZ," +
             "R_WorldDirX,R_WorldDirY,R_WorldDirZ," +
+            "R_ScreenPosX,R_ScreenPosY," +
             "R_IsValid,R_Openness,R_PupilDiameter," +
             "FocusedROI," +
             "CamPosX,CamPosY,CamPosZ,CamRotX,CamRotY,CamRotZ,CamRotW"
@@ -162,6 +170,8 @@ public class EyeTracker : MonoBehaviour
             sb.Append(F(frame.left.localRot)).Append(',');
             sb.Append(F(frame.left.localDir)).Append(',');
             sb.Append(F(frame.left.worldDir)).Append(',');
+            sb.Append(F(frame.left.screenPos.x)).Append(',');
+            sb.Append(F(frame.left.screenPos.y)).Append(',');
             sb.Append(frame.left.isValid ? "1" : "0").Append(',');
             sb.Append(F(frame.left.openness)).Append(',');
             sb.Append(F(frame.left.pupilDiameter)).Append(',');
@@ -171,6 +181,8 @@ public class EyeTracker : MonoBehaviour
             sb.Append(F(frame.right.localRot)).Append(',');
             sb.Append(F(frame.right.localDir)).Append(',');
             sb.Append(F(frame.right.worldDir)).Append(',');
+            sb.Append(F(frame.right.screenPos.x)).Append(',');
+            sb.Append(F(frame.right.screenPos.y)).Append(',');
             sb.Append(frame.right.isValid ? "1" : "0").Append(',');
             sb.Append(F(frame.right.openness)).Append(',');
             sb.Append(F(frame.right.pupilDiameter)).Append(',');
@@ -215,10 +227,17 @@ public class EyeTracker : MonoBehaviour
             frame.camPosition = hmdTransform.position;
             frame.camRotation = hmdTransform.rotation;
 
+
             if (eyeTrackerFeature.GetEyeGazeData(out XrSingleEyeGazeDataHTC[] gazes))
             {
-                frame.left = BuildEyeData(gazes[(int)XrEyePositionHTC.XR_EYE_POSITION_LEFT_HTC], hmdTransform);
-                frame.right = BuildEyeData(gazes[(int)XrEyePositionHTC.XR_EYE_POSITION_RIGHT_HTC], hmdTransform);
+                var leftGaze = gazes[(int)XrEyePositionHTC.XR_EYE_POSITION_LEFT_HTC];
+                var rightGaze = gazes[(int)XrEyePositionHTC.XR_EYE_POSITION_RIGHT_HTC];
+                leftGazeTransform.position = leftGaze.gazePose.position.ToUnityVector();
+                leftGazeTransform.rotation = leftGaze.gazePose.orientation.ToUnityQuaternion();
+                rightGazeTransform.position = rightGaze.gazePose.position.ToUnityVector();
+                rightGazeTransform.rotation = rightGaze.gazePose.orientation.ToUnityQuaternion();
+                frame.left = BuildEyeData(leftGaze, hmdTransform);
+                frame.right = BuildEyeData(rightGaze, hmdTransform);
 
                 // VIVE recording usually mirrors exactly the left eye view, not the center HMD position.
                 // We overwrite the recorded camPosition to be the physical location of the left pupil.
@@ -269,11 +288,46 @@ public class EyeTracker : MonoBehaviour
         eye.isValid = gaze.isValid;
         if (!gaze.isValid) return eye;
 
-        eye.localPos = gaze.gazePose.position.ToUnityVector();
-        eye.worldPos = hmdTransform.TransformPoint(eye.localPos);
-        eye.localRot = gaze.gazePose.orientation.ToUnityQuaternion();
-        eye.localDir = eye.localRot * Vector3.forward;
-        eye.worldDir = hmdTransform.TransformDirection(eye.localDir);
+        // OpenXR gaze data is given in the App Space (Tracking Origin).
+        Vector3 appSpacePos = gaze.gazePose.position.ToUnityVector();
+        Quaternion appSpaceRot = gaze.gazePose.orientation.ToUnityQuaternion();
+        Vector3 appSpaceDir = appSpaceRot * Vector3.forward;
+
+        // Get the HMD's pose in the exact same App Space (Tracking Space) from the XR subsystem
+        UnityEngine.XR.InputDevice headDevice = UnityEngine.XR.InputDevices.GetDeviceAtXRNode(UnityEngine.XR.XRNode.CenterEye);
+
+        if (headDevice.isValid &&
+            headDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.devicePosition, out Vector3 headAppPos) &&
+            headDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.deviceRotation, out Quaternion headAppRot))
+        {
+            // 1. Calculate Local coordinates relative to the Camera (HMD) mathematically
+            // Since both gaze and head are in App Space, we can figure out the gaze relative to the head directly.
+            eye.localPos = Quaternion.Inverse(headAppRot) * (appSpacePos - headAppPos);
+            eye.localRot = Quaternion.Inverse(headAppRot) * appSpaceRot;
+            eye.localDir = eye.localRot * Vector3.forward;
+
+            // 2. Project to World Space using the actual supplied Camera transform
+            eye.worldPos = hmdTransform.TransformPoint(appSpacePos);
+            eye.worldDir = hmdTransform.TransformDirection(appSpaceDir);
+        }
+        else
+        {
+            // Fallback (if XR is not tracking yet)
+            eye.localPos = appSpacePos;
+            eye.localRot = appSpaceRot;
+            eye.localDir = appSpaceDir;
+
+            eye.worldPos = hmdTransform.TransformPoint(appSpacePos);
+            eye.worldDir = hmdTransform.TransformDirection(appSpaceDir);
+        }
+
+        // Project the world-space gaze vector out 1 meter to get a 2D camera viewport/screen position (useful for UI overlay)
+        Camera hmdCam = hmdTransform.GetComponent<Camera>();
+        if (hmdCam != null)
+        {
+            eye.screenPos = hmdCam.WorldToScreenPoint(appSpacePos);
+        }
+
         return eye;
     }
 }
