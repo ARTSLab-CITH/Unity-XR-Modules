@@ -1,2 +1,10 @@
 *.meta
 *.meta.private*
+
+# .NET / C# build artifacts
+[Bb]in/
+[Oo]bj/
+.vs/
+*.user
+*.suo
+*.sln.docstates

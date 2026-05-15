@@ -220,6 +220,18 @@ public class EyeTracker : MonoBehaviour
                 frame.left = BuildEyeData(gazes[(int)XrEyePositionHTC.XR_EYE_POSITION_LEFT_HTC], hmdTransform);
                 frame.right = BuildEyeData(gazes[(int)XrEyePositionHTC.XR_EYE_POSITION_RIGHT_HTC], hmdTransform);
 
+                // VIVE recording usually mirrors exactly the left eye view, not the center HMD position.
+                // We overwrite the recorded camPosition to be the physical location of the left pupil.
+                if (frame.left.isValid)
+                {
+                    frame.camPosition = frame.left.worldPos;
+                }
+                else
+                {
+                    // Fallback to average left eye IPD offset (-31.5mm from center)
+                    frame.camPosition = hmdTransform.TransformPoint(new Vector3(-0.0315f, 0, 0));
+                }
+
                 // World-space ROI raycast from left eye (use right if left invalid).
                 var primary = frame.left.isValid ? frame.left : (frame.right.isValid ? frame.right : default);
                 if (primary.isValid)
