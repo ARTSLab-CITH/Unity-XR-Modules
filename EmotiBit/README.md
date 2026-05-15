@@ -105,3 +105,26 @@ A data class containing configuration settings for the `EmotiBitWiFiHost`.
 | **`WifiHostSettings getWifiHostSettings()`** | Method | Gets the current `WifiHostSettings`. |
 | **`List<string> getLocalIPs()`** | Method | Returns a list of all local IPv4 addresses on the host machine. |
 | **`void Dispose()`** | Method | Stops all threads and closes all network connections. |
+
+---
+
+## EmotiBit Native Library (EmotiBitLib)
+
+The `EmotiBitLib` folder contains a C# project designed to be compiled into a native shared library (e.g., `.so`, `.dll`). This allows the EmotiBit communication stack to be used by non-C# environments or as a plugin component. BrainFlow is often inadequate for this, so I extracted code and built an independent library for the EmotiBit.
+
+### Native Interface API
+
+The [NativeInterface.cs](EmotiBitLib/EmotiBitLib/NativeInterface.cs) class exposes the following methods via `[UnmanagedCallersOnly]`:
+
+| Method | Return | Description |
+| --- | --- | --- |
+| `InitEmotiBit()` | `void` | Initializes the `EmotiBitManager` instance. |
+| `UpdateEmotiBit()` | `void` | Processes the internal update loop for the manager. |
+| `ConnectEmotiBit(IntPtr deviceIdPtr)` | `void` | Connects to a device using its ID (passed as an ANSI string pointer). |
+| `DisconnectEmotiBit()` | `void` | Disconnects from the current device. |
+| `IsConnected()` | `bool` | Returns the current connection status. |
+| `GetDiscoveredDevicesList()` | `IntPtr` | Returns a comma-separated string pointer of discovered device IDs. |
+| `GetBatteryLevel()` | `IntPtr` | Returns a string pointer representing the battery level (e.g., "95%"). |
+| `GetData(int dataTypeIndex)` | `double` | Retrieves the latest value for a specific `DataTypes` index. |
+
+**Note:** String results returned as `IntPtr` are allocated using `CoTaskMemAnsi` and should be managed accordingly by the caller.
